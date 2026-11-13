@@ -36,3 +36,8 @@ Run as `root` inside the guest VM:
 ```bash
 ./grow-fs.sh
 ```
+
+## Troubleshooting
+
+### `troubleshooting/replace-backup-hdd.md`
+Step-by-step procedure to replace the failing 2 TB backup HDD (`hdd` storage at `/mnt/pve/hdd`): install the new disk, partition and format it, rsync the vzdump backups, repoint the systemd mount unit and remove the old disk.
