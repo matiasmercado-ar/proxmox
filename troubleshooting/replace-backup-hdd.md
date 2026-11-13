@@ -24,13 +24,14 @@ Because Proxmox only knows the storage by path, nothing in `storage.cfg` or the 
 
 1. Disable the backup job so nothing writes to the old disk during the copy.
 2. Power off, install the new disk on a free SATA port, keep the old one connected.
-3. Partition and format the new disk.
-4. Copy the backups with rsync.
-5. Point the mount unit at the new disk and remount.
-6. Test a backup, re-enable the job.
-7. Power off, remove the old disk, boot, verify.
+3. Verify the new disk with SMART self-tests before writing to it.
+4. Partition and format the new disk.
+5. Copy the backups with rsync.
+6. Point the mount unit at the new disk and remount.
+7. Test a backup, re-enable the job.
+8. Power off, remove the old disk, boot, verify.
 
-Total time: about 1.5 to 2 hours, mostly the copy.
+Total time: about 2 hours of work, plus 4 to 6 hours of unattended SMART long test on the new disk (step 3).
 
 ## 1. Disable the backup job
 
@@ -67,18 +68,58 @@ lsblk $NEW
 
 `lsblk $NEW` must print a 1.8T disk with no partitions. Do not continue if it prints anything else.
 
-Quick health check of the new disk (2 minutes):
+## 3. Verify the new disk before trusting it
+
+A new disk can be dead on arrival, refurbished, or damaged in shipping. A disk in worse shape than the old one is useless as a backup target, so test it before writing anything to it. Budget about 5 hours, almost all of it the long test running unattended.
+
+Identity and counters:
+
+```
+smartctl -i $NEW
+smartctl -H $NEW
+smartctl -A $NEW | grep -E 'Power_On_Hours|Power_Cycle|Reallocated|Pending|Uncorrect|CRC'
+```
+
+Expect: health `PASSED`, Power_On_Hours in the single digits and Power_Cycle_Count under about 20 (more means the disk is not new), Reallocated_Sector_Ct, Current_Pending_Sector, Offline_Uncorrectable and UDMA_CRC_Error_Count all 0. If the model reports `Sector Sizes: 512 bytes logical, 4096 bytes physical` that is normal for a modern 2 TB disk.
+
+Short test (2 minutes) and conveyance test (about 5 minutes, detects shipping damage; if the disk says it is not supported, skip it):
 
 ```
 smartctl -t short $NEW
 sleep 150
 smartctl -l selftest $NEW
-smartctl -A $NEW | grep -E 'Reallocated|Pending|Uncorrect'
+smartctl -t conveyance $NEW
+sleep 400
+smartctl -l selftest $NEW
 ```
 
-Expect `Completed without error` and all three counters at 0.
+Both must show `Completed without error`.
 
-## 3. Partition and format
+Full surface read. On 2 TB this takes 4 to 6 hours. The disk must stay idle, so start it and come back later:
+
+```
+smartctl -t long $NEW
+smartctl -c $NEW | grep -A1 'Extended self-test routine'
+```
+
+The second command prints the estimated duration in minutes. When that time has passed:
+
+```
+smartctl -l selftest $NEW
+smartctl -A $NEW | grep -E 'Reallocated|Pending|Uncorrect|CRC'
+```
+
+Quick throughput sanity check, reads the first 8 GB (under a minute):
+
+```
+dd if=$NEW of=/dev/null bs=4M count=2000 status=progress
+```
+
+Expect 150 to 250 MB/s. Much lower, or stalls, points to a bad cable or port rather than the disk: try another SATA cable before blaming the drive.
+
+Go / no-go: continue only if every self-test reads `Completed without error` and the four counters are still 0. A single reallocated or pending sector on a disk with a few hours of use is a return, not a disk to keep backups on.
+
+## 4. Partition and format
 
 GPT with a single ext4 partition, same layout as the old disk. Reserved blocks set to 0 since this is a backup store, not a root filesystem.
 
@@ -90,7 +131,7 @@ mkfs.ext4 -L hdd -m 0 ${NEW}-part1
 blkid ${NEW}-part1
 ```
 
-Write down the `UUID=` value from `blkid`. It is needed in step 5.
+Write down the `UUID=` value from `blkid`. It is needed in step 6.
 
 Mount it temporarily:
 
@@ -100,7 +141,7 @@ mount ${NEW}-part1 /mnt/newhdd
 df -h /mnt/newhdd
 ```
 
-## 4. Copy the backups
+## 5. Copy the backups
 
 571 GB over SATA takes 1 to 1.5 hours. Run it under `nohup` so a dropped SSH session does not kill it:
 
@@ -139,7 +180,7 @@ Run rsync a second time. It finishes in seconds and copies only what changed or 
 rsync -aHAX --info=progress2 /mnt/pve/hdd/ /mnt/newhdd/
 ```
 
-## 5. Switch the mount to the new disk
+## 6. Switch the mount to the new disk
 
 Unmount both and edit the mount unit:
 
@@ -149,7 +190,7 @@ systemctl stop mnt-pve-hdd.mount
 mountpoint /mnt/pve/hdd
 ```
 
-`mountpoint` must say `is not a mountpoint`. Now replace the UUID in the unit with the one from step 3:
+`mountpoint` must say `is not a mountpoint`. Now replace the UUID in the unit with the one from step 4:
 
 ```
 cp /etc/systemd/system/mnt-pve-hdd.mount /root/mnt-pve-hdd.mount.bak
@@ -170,7 +211,7 @@ pvesm list hdd | tail -5
 
 `df` must show about 1.8T with 571G used, `lsblk` must show the new serial next to `/mnt/pve/hdd`, and `pvesm status` must list `hdd` as `active`. The GUI (Datacenter > Storage > hdd, and the node's Backups view) should show all backups.
 
-## 6. Test a backup and re-enable the job
+## 7. Test a backup and re-enable the job
 
 Back up the smallest guest (template 900, about 20 seconds) to the new disk:
 
@@ -186,7 +227,7 @@ pvesh set /cluster/backup/<BACKUP_JOB_ID> --enabled 1
 pvesh get /cluster/backup/<BACKUP_JOB_ID> --output-format json | grep enabled
 ```
 
-## 7. Remove the old disk
+## 8. Remove the old disk
 
 Wipe its signatures first so nothing ever auto-mounts it by the old UUID. Double check the serial before wiping:
 
@@ -213,7 +254,7 @@ pvesm status
 
 The old serial must be gone, the mount unit `active (mounted)`, storage `hdd` active. Start the guests that do not auto-start if needed.
 
-## 8. Cleanup
+## 9. Cleanup
 
 ```
 rmdir /mnt/newhdd
@@ -230,7 +271,7 @@ Check the next day with `smartctl -l selftest $NEW`.
 
 ## Rollback
 
-If anything goes wrong before step 7, the old disk is still intact. Restore the mount unit and remount:
+If anything goes wrong before step 8, the old disk is still intact. Restore the mount unit and remount:
 
 ```
 systemctl stop mnt-pve-hdd.mount
