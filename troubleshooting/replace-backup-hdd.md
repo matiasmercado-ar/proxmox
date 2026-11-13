@@ -127,6 +127,8 @@ GPT with a single ext4 partition, same layout as the old disk. Reserved blocks s
 sgdisk --zap-all $NEW
 sgdisk -n 1:0:0 -t 1:8300 -c 1:hdd $NEW
 partx -u $NEW
+udevadm settle
+ls -l ${NEW}-part1
 mkfs.ext4 -L hdd -m 0 ${NEW}-part1
 blkid ${NEW}-part1
 ```
