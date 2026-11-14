@@ -298,6 +298,11 @@ cp /root/oldcfg/usr/local/bin/telegram-notify.sh /usr/local/bin/ && chmod 755 /u
 cp /root/oldcfg/etc/telegram-notify.conf /etc/ && chmod 600 /etc/telegram-notify.conf
 cp /root/oldcfg/etc/zfs/zed.d/zed.rc /etc/zfs/zed.d/zed.rc && systemctl restart zfs-zed
 pvesh create /cluster/notifications/targets/telegram/test
+# host alerts (boot/shutdown message, per-minute health checks)
+cp /root/oldcfg/usr/local/bin/host-lifecycle-notify.sh /root/oldcfg/usr/local/bin/host-health-check.sh /usr/local/bin/ && chmod 755 /usr/local/bin/host-*.sh
+cp /root/oldcfg/etc/host-health.conf /etc/
+cp /root/oldcfg/etc/systemd/system/telegram-lifecycle.service /root/oldcfg/etc/systemd/system/telegram-health.service /root/oldcfg/etc/systemd/system/telegram-health.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now telegram-lifecycle.service telegram-health.timer
 cp /root/oldcfg/etc/smartd.conf /etc/smartd.conf && systemctl restart smartd
 cp -r /root/oldcfg/root/.ssh /root/
 cp /root/oldcfg/etc/default/locale /etc/default/locale
