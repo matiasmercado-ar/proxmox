@@ -41,3 +41,6 @@ Run as `root` inside the guest VM:
 
 ### `troubleshooting/replace-backup-hdd.md`
 Step-by-step procedure to replace the failing 2 TB backup HDD (`hdd` storage at `/mnt/pve/hdd`): install the new disk, partition and format it, rsync the vzdump backups, repoint the systemd mount unit and remove the old disk.
+
+### `troubleshooting/disaster-recovery.md`
+Disaster Recovery plan for the host: what to back up to the NAS beforehand (guest backups, host configuration archive, secrets), then the full rebuild on two new SSDs: Proxmox install as ZFS mirror, network, ProxMenux, GPU passthrough, storages, guest restore order, users/tokens/jobs, per-app checks and a verification list.
