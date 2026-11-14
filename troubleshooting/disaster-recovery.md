@@ -68,7 +68,7 @@ Everything that makes this host "this host" is in /etc (network, modprobe, kerne
 mkdir -p /mnt/pve/nas-backup/proxmox/host-config
 cat > /etc/cron.d/host-config-backup <<'CRON'
 # Nightly archive of the Proxmox host configuration to the NAS (keeps 30)
-15 2 * * * root tar --warning=no-file-changed -czpf /mnt/pve/nas-backup/proxmox/host-config/proxmox-config-$(date +\%F).tgz /etc /usr/local/bin /usr/local/share/proxmenux/*.json /root/.ssh /home/<ADMIN_USER>/.ssh /var/spool/cron 2>/dev/null; dpkg --get-selections > /mnt/pve/nas-backup/proxmox/host-config/dpkg-selections-$(date +\%F).txt; find /mnt/pve/nas-backup/proxmox/host-config -type f -mtime +30 -delete
+15 2 * * * root tar --warning=no-file-changed -czpf /mnt/pve/nas-backup/proxmox/host-config/proxmox-config-$(date +\%F).tgz /etc /usr/local/bin /usr/local/share/proxmenux/*.json /root/.ssh /home/<ADMIN_USER>/.ssh /var/spool/cron /etc/telegram-notify.conf 2>/dev/null; dpkg --get-selections > /mnt/pve/nas-backup/proxmox/host-config/dpkg-selections-$(date +\%F).txt; find /mnt/pve/nas-backup/proxmox/host-config -type f -mtime +30 -delete
 CRON
 chmod 644 /etc/cron.d/host-config-backup
 ```
@@ -76,7 +76,7 @@ chmod 644 /etc/cron.d/host-config-backup
 Run it once by hand and check:
 
 ```
-tar --warning=no-file-changed -czpf /mnt/pve/nas-backup/proxmox/host-config/proxmox-config-$(date +%F).tgz /etc /usr/local/bin /usr/local/share/proxmenux/*.json /root/.ssh /home/<ADMIN_USER>/.ssh /var/spool/cron 2>/dev/null
+tar --warning=no-file-changed -czpf /mnt/pve/nas-backup/proxmox/host-config/proxmox-config-$(date +%F).tgz /etc /usr/local/bin /usr/local/share/proxmenux/*.json /root/.ssh /home/<ADMIN_USER>/.ssh /var/spool/cron /etc/telegram-notify.conf 2>/dev/null
 ls -lh /mnt/pve/nas-backup/proxmox/host-config/
 tar -tzf /mnt/pve/nas-backup/proxmox/host-config/proxmox-config-$(date +%F).tgz | grep -E 'etc/pve/(storage.cfg|jobs.cfg|user.cfg|priv/token.cfg)|interfaces$|vfio.conf|10-nic0.link|mnt-pve-hdd.mount'
 ```
@@ -288,10 +288,16 @@ pvesh get /cluster/backup --output-format json | grep -oE '"id":"[^"]+"'
 
 Expect user ticketdesk@pve, pool ticketdesk (members will be empty until td-lab clones labs; templates 200-202 belong to it: `pvesh set /pools/ticketdesk --vms 200,201,202`), the two TicketDesk roles, and the three backup jobs (hdd every 2 days with the 153-198 exclude, nas-daily, nas-weekly).
 
-Other host bits from the archive:
+Other host bits from the archive. Notifications go to Telegram: the PVE webhook target and its matcher are in notifications.cfg, the bot token and chat id live in priv/notifications.cfg (webhook secrets) and in /etc/telegram-notify.conf (used by the smartd and ZED hook script):
 
 ```
 cp /root/oldcfg/etc/cron.d/host-config-backup /etc/cron.d/
+cp /root/oldcfg/etc/pve/notifications.cfg /etc/pve/notifications.cfg
+cp /root/oldcfg/etc/pve/priv/notifications.cfg /etc/pve/priv/notifications.cfg
+cp /root/oldcfg/usr/local/bin/telegram-notify.sh /usr/local/bin/ && chmod 755 /usr/local/bin/telegram-notify.sh
+cp /root/oldcfg/etc/telegram-notify.conf /etc/ && chmod 600 /etc/telegram-notify.conf
+cp /root/oldcfg/etc/zfs/zed.d/zed.rc /etc/zfs/zed.d/zed.rc && systemctl restart zfs-zed
+pvesh create /cluster/notifications/targets/telegram/test
 cp /root/oldcfg/etc/smartd.conf /etc/smartd.conf && systemctl restart smartd
 cp -r /root/oldcfg/root/.ssh /root/
 cp /root/oldcfg/etc/default/locale /etc/default/locale
