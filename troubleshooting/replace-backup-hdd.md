@@ -1,6 +1,6 @@
 # Replace the failing backup HDD (`hdd` storage)
 
-Host: the Proxmox node, PVE 9.2. SSH in as your admin user, then `sudo -i`. Every command below runs as root on the host unless stated otherwise.
+Host: the Proxmox node, PVE 9.2. Paste commands one line at a time, or one fenced block at a time: a multi-line paste can split a command from its arguments. SSH in as your admin user, then `sudo -i`. Every command below runs as root on the host unless stated otherwise.
 
 ## Current state (2026-11-13)
 
@@ -199,19 +199,22 @@ cp /etc/systemd/system/mnt-pve-hdd.mount /root/mnt-pve-hdd.mount.bak
 sed -i 's|^What=.*|What=/dev/disk/by-uuid/PUT_THE_NEW_UUID_HERE|' /etc/systemd/system/mnt-pve-hdd.mount
 grep What= /etc/systemd/system/mnt-pve-hdd.mount
 systemctl daemon-reload
-systemctl start mnt-pve-hdd.mount
+systemctl restart mnt-pve-hdd.mount
 ```
+
+`restart`, not `start`: if the unit is already active (for example because an earlier attempt mounted the old UUID), `start` is a no-op and the old disk stays mounted.
 
 Verify:
 
 ```
+findmnt /mnt/pve/hdd
 df -h /mnt/pve/hdd
 lsblk -o NAME,SIZE,SERIAL,MOUNTPOINT | grep -B1 /mnt/pve/hdd
 pvesm status
 pvesm list hdd | tail -5
 ```
 
-`df` must show about 1.8T with 571G used, `lsblk` must show the new serial next to `/mnt/pve/hdd`, and `pvesm status` must list `hdd` as `active`. The GUI (Datacenter > Storage > hdd, and the node's Backups view) should show all backups.
+`findmnt` SOURCE must be the new disk's partition, `df` must show about 1.8T with 571G used, `lsblk` must show the new serial next to `/mnt/pve/hdd`, and `pvesm status` must list `hdd` as `active`. If SOURCE is still the old partition, run `systemctl stop mnt-pve-hdd.mount`, confirm with `mountpoint /mnt/pve/hdd`, then `systemctl start mnt-pve-hdd.mount` and check again. The GUI (Datacenter > Storage > hdd, and the node's Backups view) should show all backups.
 
 ## 7. Test a backup and re-enable the job
 
